@@ -23,26 +23,26 @@ import Text.Regex.TDFA
 main :: IO ()
 main = do
     args <- getArgs
-    let numArgs = length args
     when (checkHelpOption args) $ do
         printHelp
         exitSuccess
     when (checkSilentOption args) $ do
         exitSuccess
-    when (numArgs == 2) $ do
-        let pattern = head args
-            fileName = last args
-        fileExists <- doesFileExist fileName
-        if fileExists then do
-            process pattern fileName
-            exitSuccess
-        else do
-            putStrLn "\nFile doesn't exist!\n"
-            exitFailure
-    when (numArgs == 3) $ do
-        -- (to be implemented)
-        exitSuccess
+    case args of 
+        [pattern, fileName] -> do 
+            fileExists <- doesFileExist fileName
+            if fileExists then do
+                process pattern fileName
+                exitSuccess
+            else do
+                putStrLn "\nFile doesn't exist!\n"
+                exitFailure     
+        _ -> printErrorMessage
+
+printErrorMessage :: IO ()
+printErrorMessage = do
     putStrLn "\nRun runhaskell sed.hs -h or runhaskell sed.hs --help to see program usage\n"
+    exitFailure
 
 checkSilentOption :: Foldable t => t String -> Bool
 checkSilentOption args = "-n" `elem` args || "--quiet" `elem` args || "--silent" `elem` args
