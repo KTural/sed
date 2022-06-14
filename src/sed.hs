@@ -63,7 +63,11 @@ printHelp = do
     putStrLn "      Replacing string on a specific line number: e.g."
     putStrLn "              runhaskell sed.hs '3 s/unix/linux/' input.txt\n"
     putStrLn "      Replacing string on a range of lines: e.g."
-    putStrLn "              runhaskell sed.hs '1,3 s/unix/linux/' input.txt\n\n"
+    putStrLn "              runhaskell sed.hs '1,3 s/unix/linux/' input.txt\n"
+    putStrLn "      Replacing the nth occurence of a pattern on a range of lines: e.g."
+    putStrLn "              runhaskell sed.hs '1,3 s/unix/linux/2' input.txt\n"
+    putStrLn "      Replacing all the occurrences of the pattern on a range of lines: e.g."
+    putStrLn "              runhaskell sed.hs '1,3 s/unix/linux/g' input.txt\n\n"
     putStrLn "Basic command-line options: \n"
     putStrLn "      -n; --quiet; --silent \n"
     putStrLn "      -e script; --expression=script"
@@ -169,9 +173,20 @@ replaceStringRangeLines n1 n2 pattern fileName = do
                 putStrLn "\nInvalid line number!\n"
                 exitFailure
         else do
-            mapM_ putStrLn beforeRange
-            mapM_ (\line-> replaceStringHelper line firstPattern replacement) targetRange
+            let lastPattern = last pattern 
+                lastNum = readMaybe lastPattern :: Maybe Int
+            mapM_ putStrLn beforeRange 
+            if isJust lastNum then do 
+                mapM_ (\line -> replaceNthOccHelper line firstPattern replacement 
+                      (fromJust lastNum)) targetRange
+            else do 
+                case lastPattern of
+                    "g" -> mapM_ (\line -> replaceAllOccHelper line firstPattern replacement) targetRange
+                    _ -> mapM_ (\line-> replaceStringHelper line firstPattern replacement) targetRange
             mapM_ putStrLn afterRange
+
+checkRangeNums :: Foldable t => t (Maybe a) -> Bool
+checkRangeNums rangeNums = all isJust rangeNums && length rangeNums == 2
 
 process :: String -> String -> IO ()
 process pattern fileName =
@@ -183,13 +198,13 @@ process pattern fileName =
     in check x maybeNum rangeNums firstNum
     where check x maybeNum rangeNums firstNum
             | last x == "" && isNothing (head rangeNums) =
-                    replaceString x fileName
-            | isJust maybeNum =
-                    replaceNthOcc (fromJust maybeNum) x fileName
-            | last x == "g" =
-                    replaceAllOcc x fileName
+                replaceString x fileName
+            | isJust maybeNum && not (all isJust rangeNums) =
+                replaceNthOcc (fromJust maybeNum) x fileName
+            | last x == "g" && not (all isJust rangeNums) =
+                replaceAllOcc x fileName
             | isJust (head rangeNums) && length rangeNums == 1 =
-                    replaceStringLineNum firstNum x fileName
-            | all isJust rangeNums && length rangeNums == 2 =
-                    replaceStringRangeLines firstNum (fromJust $ last rangeNums) x fileName
+                replaceStringLineNum firstNum x fileName
+            | checkRangeNums rangeNums =
+                replaceStringRangeLines firstNum (fromJust $ last rangeNums) x fileName
             | otherwise =  putStrLn "\nInvalid pattern!\n"
