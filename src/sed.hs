@@ -28,15 +28,15 @@ main = do
         exitSuccess
     when (checkSilentOption args) $ do
         exitSuccess
-    case args of 
-        [pattern, fileName] -> do 
+    case args of
+        [pattern, fileName] -> do
             fileExists <- doesFileExist fileName
             if fileExists then do
                 process pattern fileName
                 exitSuccess
             else do
                 putStrLn "\nFile doesn't exist!\n"
-                exitFailure     
+                exitFailure
         _ -> printErrorMessage
 
 printErrorMessage :: IO ()
@@ -75,7 +75,7 @@ printHelp = do
     putStrLn "      -h ; --help\n"
 
 getPattern :: [b] -> (b, b)
-getPattern pattern = 
+getPattern pattern =
     let (x, y) = (pattern !! 1, pattern !! 2)
     in (x, y)
 
@@ -148,32 +148,13 @@ checkInvalidNums k =
     sum (map checkNum (splitOn " " $ unwords $ splitOn "," (head k)))
 
 replaceStringLineNum :: Int -> [String] -> FilePath -> IO ()
-replaceStringLineNum n pattern fileName = do
-    if n == 0 then do
-        putStrLn "\nInvalid usage of line address 0\n"
-        exitFailure
-    else do
-        contents <- readFile fileName
-        let linesOfFiles = lines contents
-            beforeNthLine = take (n - 1) linesOfFiles
-            nthLine = linesOfFiles !! (n - 1)
-            afterNthLine = drop n linesOfFiles
-            (firstPattern, replacement) = getPattern pattern
-        if n > length linesOfFiles then do
-            if checkInvalidNum pattern == 1 then do
-                printEveryLine linesOfFiles
-            else do
-                putStrLn "\nInvalid line number!\n"
-                exitFailure
-        else do
-            mapM_ putStrLn beforeNthLine
-            replaceStringHelper nthLine firstPattern replacement
-            mapM_ putStrLn afterNthLine
+replaceStringLineNum n = replaceStringRangeLines n n
 
 replaceStringRangeLines :: Int -> Int -> [String] -> FilePath -> IO ()
 replaceStringRangeLines n1 n2 pattern fileName = do
     if n1 == 0 then do
         putStrLn "\nInvalid usage of line address 0\n"
+        exitFailure
     else do
         contents <- readFile fileName
         let linesOfFiles = lines contents
@@ -182,7 +163,7 @@ replaceStringRangeLines n1 n2 pattern fileName = do
             (targetRange, afterRange) = splitAt (newN2 - newN1 + 1) rest
             (firstPattern, replacement) = getPattern pattern
         if newN1 > length linesOfFiles && newN2 /= 0 then do
-            if checkInvalidNums pattern == 2 && newN1 > 0 then do
+            if (checkInvalidNums pattern == 2 && newN1 > 0) || (checkInvalidNum pattern == 1 ) then do
                 printEveryLine linesOfFiles
             else do
                 putStrLn "\nInvalid line number!\n"
