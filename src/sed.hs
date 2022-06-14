@@ -177,11 +177,9 @@ replaceStringRangeLines n1 n2 pattern fileName = do
     else do
         contents <- readFile fileName
         let linesOfFiles = lines contents
-            newN1 = if n1 > n2 then n2 else n1
-            newN2 = if n1 > n2 then n1 else n2
-            beforeRange = take (newN1 - 1) linesOfFiles
-            targetRange = take newN2 $ drop (newN1 - 1) linesOfFiles
-            afterRange = drop newN2 linesOfFiles
+            (newN1, newN2) = (min n1 n2, max n1 n2)
+            (beforeRange, rest) = splitAt (newN1 - 1) linesOfFiles
+            (targetRange, afterRange) = splitAt (newN2 - newN1 + 1) rest
             (firstPattern, replacement) = getPattern pattern
         if newN1 > length linesOfFiles && newN2 /= 0 then do
             if checkInvalidNums pattern == 2 && newN1 > 0 then do
@@ -198,7 +196,7 @@ process :: String -> String -> IO ()
 process pattern fileName =
     let x = splitOn "/" pattern
         maybeNum = readMaybe $ last x :: Maybe Int
-        digits = [[y | y <- x , isDigit y] | x <- splitOn "," $ head x]
+        digits = [filter isDigit x | x <- splitOn "," $ head x]
         rangeNums = map (\x -> readMaybe x :: Maybe Int) digits
         firstNum = fromJust $ head rangeNums
     in check x maybeNum rangeNums firstNum
