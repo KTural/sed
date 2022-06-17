@@ -99,55 +99,50 @@ process pattern fileName = do
         linesOfFiles = getEachLine fileName
         (firstPattern, replacement) = getPattern x
         lastPattern = last x
-    processHelper x maybeNum rangeNums firstNum 
-                linesOfFiles firstPattern replacement lastPattern
-
-processHelper :: [String] -> Maybe Int -> [Maybe Int] -> Int -> IO [String] -> 
-                String -> String -> String -> IO ()
-processHelper x maybeNum rangeNums firstNum linesOfFiles firstPattern replacement lastPattern
-            | last x == "" && isNothing (head rangeNums) = do
-                lines <- linesOfFiles
-                mapM_ (\line -> putStrLn (replaceString line firstPattern replacement)) lines
-            | isJust maybeNum && not (all isJust rangeNums) = do
-                lines <- linesOfFiles
-                mapM_ (\line -> putStrLn (replaceNthOcc line firstPattern replacement
-                      (fromJust maybeNum))) lines
-            | last x == "g" && not (all isJust rangeNums) = do
-                lines <- linesOfFiles
-                if firstPattern == "" then do
-                    putStrLn "\n No regular expression is given\n"
-                    exitFailure
-                else do
-                    mapM_ (\line -> putStrLn (replaceAllOcc line firstPattern replacement)) lines
-            | isJust (head rangeNums) && length rangeNums == 1 = do
-                lines <- linesOfFiles
-                mapM_ putStrLn (replaceStringLineNum firstNum firstPattern 
-                                replacement lastPattern lines)
-            | checkRangeNums rangeNums = do
-                lines <- linesOfFiles
-                if firstNum == 0 then do
-                    putStrLn "\nInvalid usage of line address 0\n"
-                    exitFailure
-                else do
-                    let n1 = firstNum
-                        n2 = fromJust $ last rangeNums
-                        (newN1, newN2) = (min n1 n2, max n1 n2)
-                    if newN1 > length lines && newN2 /= 0 then do
-                        if (checkInvalidNums x == 2 && newN1 > 0) || 
-                            (checkInvalidNum x == 1 ) then do
-                                mapM_ putStrLn lines
-                        else do
-                                putStrLn "\nInvalid line number!\n"
-                                exitFailure
-                    else do 
-                        mapM_ putStrLn (replaceStringRangeLines newN1 newN2
-                                        firstPattern replacement lastPattern lines)
-            | otherwise = 
-                putStrLn "\nInvalid pattern!\n"
+    when (firstPattern == "" ) $ do
+        putStrLn "\n No regular expression is given\n"
+        exitFailure
+    when (isJust (head rangeNums) && firstNum == 0) $ do
+        putStrLn "\nInvalid usage of line address 0\n"
+        exitFailure
+    lines <- linesOfFiles
+    let result = processHelper x maybeNum rangeNums firstNum
+                            lines firstPattern replacement lastPattern
+    mapM_ (\line -> if null line then do
+                        putStrLn "\nInvalid pattern!\n"
+                    else do
+                        putStrLn line) result
 
 processMultipleExpressions :: String -> String -> String -> IO ()
 processMultipleExpressions pattern1 pattern2 fileName =
     print pattern1
+
+processHelper :: [String] -> Maybe Int -> [Maybe Int] -> Int -> [String] ->
+                String -> String -> String -> [String]
+processHelper x maybeNum rangeNums firstNum lines firstPattern replacement lastPattern
+            | last x == "" && isNothing (head rangeNums) =
+                map (\line -> replaceString line firstPattern replacement) lines
+            | isJust maybeNum && not (all isJust rangeNums) =
+                map (\line -> replaceNthOcc line firstPattern replacement
+                            (fromJust maybeNum)) lines
+            | last x == "g" && not (all isJust rangeNums) =
+                map (\line -> replaceAllOcc line firstPattern replacement) lines
+            | isJust (head rangeNums) && length rangeNums == 1 =
+                replaceStringLineNum firstNum firstPattern replacement lastPattern lines
+            | checkRangeNums rangeNums =
+                let n1 = firstNum
+                    n2 = fromJust $ last rangeNums
+                    (newN1, newN2) = (min n1 n2, max n1 n2)
+                in
+                    if newN1 > length lines && newN2 /= 0 then
+                        if (checkInvalidNums x == 2 && newN1 > 0) ||
+                            (checkInvalidNum x == 1 ) then
+                                lines
+                        else []
+                    else
+                        replaceStringRangeLines newN1 newN2 firstPattern
+                                                replacement lastPattern lines
+            | otherwise = []
 
 checkSilentOption :: Foldable t => t String -> Bool
 checkSilentOption args = "-n" `elem` args || "--quiet" `elem` args || "--silent" `elem` args
@@ -202,7 +197,7 @@ replaceStringLineNum n = replaceStringRangeLines n n
 
 replaceStringRangeLinesHelper :: [String] -> Maybe Int -> p -> String -> String ->
                                 String -> [String]
-replaceStringRangeLinesHelper targetRange lastNum linesOfFiles 
+replaceStringRangeLinesHelper targetRange lastNum linesOfFiles
                             firstPattern replacement lastPattern =
     if isJust lastNum then
         map (\line -> replaceNthOcc line firstPattern replacement (fromJust lastNum)) targetRange
@@ -217,6 +212,6 @@ replaceStringRangeLines newN1 newN2 firstPattern replacement lastPattern linesOf
         (targetRange, afterRange) = splitAt (newN2 - newN1 + 1) rest
         lastNum = readMaybe lastPattern :: Maybe Int
     in (beforeRange ++
-        replaceStringRangeLinesHelper targetRange lastNum linesOfFiles 
+        replaceStringRangeLinesHelper targetRange lastNum linesOfFiles
         firstPattern replacement lastPattern ++
         afterRange)
