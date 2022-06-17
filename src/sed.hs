@@ -40,7 +40,7 @@ main = do
         [switch1, pattern1, switch2, pattern2, fileName] -> do
             fileExists <- doesFileExist fileName
             if fileExists && "-e" == switch1 && "-e" == switch2 then do
-                processMultipleExpressions pattern1 pattern2 fileName
+                processDoublePatterns pattern1 pattern2 fileName
                 exitSuccess
             else do
                 putStrLn "\nFile doesn't exist! or Invalid command-line option\n"
@@ -69,13 +69,15 @@ printHelp = do
     putStrLn "      Replacing the nth occurence of a pattern on a range of lines: e.g."
     putStrLn "              runhaskell sed.hs '1,3 s/unix/linux/2' input.txt\n"
     putStrLn "      Replacing all the occurrences of the pattern on a range of lines: e.g."
-    putStrLn "              runhaskell sed.hs '1,3 s/unix/linux/g' input.txt\n\n"
+    putStrLn "              runhaskell sed.hs '1,3 s/unix/linux/g' input.txt\n"
+    putStrLn "      Adding double pattern scripts to be run while processing the input : e.g."
+    putStrLn "              runhaskell sed.hs -e '1,3 s/unix/linux/g' -e '1,3 s/linux/unix/g' input.txt\n\n"
     putStrLn "Basic command-line options: \n"
     putStrLn "      -n; --quiet; --silent \n"
-    putStrLn "      -e script; --expression=script"
+    putStrLn "      -e script"
     putStrLn "              add the commands in script to the set of commands \ 
                             \to be run while processing the input\n"
-    putStrLn "      -f script-file ; --file=script-file"
+    putStrLn "      -f script-file"
     putStrLn "              add the commands contained in the file script-file \ 
                             \to the set of commands to be run while processing the input\n"
     putStrLn "      -h ; --help\n"
@@ -83,20 +85,26 @@ printHelp = do
 printEveryLine :: [String] -> IO ()
 printEveryLine = mapM_ putStrLn
 
+printResult :: Foldable t => t String -> IO ()
+printResult output = do
+    mapM_ (\line -> if null line then do
+                        putStrLn "\nInvalid pattern!\n"
+                    else do
+                        putStrLn line) output
+
 getEachLine :: FilePath -> IO [String]
 getEachLine fileName = do
     contents <- readFile fileName
     let linesOfFiles = lines contents
     return linesOfFiles
 
-process :: String -> String -> IO ()
-process pattern fileName = do
+parser :: String -> [String] -> IO [String]
+parser pattern lines = do
     let x = splitOn "/" pattern
         maybeNum = readMaybe $ last x :: Maybe Int
         digits = [filter isDigit x | x <- splitOn "," $ head x]
         rangeNums = map (\x -> readMaybe x :: Maybe Int) digits
         firstNum = fromJust $ head rangeNums
-        linesOfFiles = getEachLine fileName
         (firstPattern, replacement) = getPattern x
         lastPattern = last x
     when (firstPattern == "" ) $ do
@@ -105,17 +113,26 @@ process pattern fileName = do
     when (isJust (head rangeNums) && firstNum == 0) $ do
         putStrLn "\nInvalid usage of line address 0\n"
         exitFailure
-    lines <- linesOfFiles
     let result = processHelper x maybeNum rangeNums firstNum
                             lines firstPattern replacement lastPattern
-    mapM_ (\line -> if null line then do
-                        putStrLn "\nInvalid pattern!\n"
-                    else do
-                        putStrLn line) result
+    return result
 
-processMultipleExpressions :: String -> String -> String -> IO ()
-processMultipleExpressions pattern1 pattern2 fileName =
-    print pattern1
+startProcess :: String -> String -> IO [String]
+startProcess pattern fileName = do
+    let linesOfFiles = getEachLine fileName
+    lines <- linesOfFiles
+    parser pattern lines
+
+process :: String -> String -> IO ()
+process pattern fileName = do
+    result <- startProcess pattern fileName
+    printResult result
+
+processDoublePatterns :: String -> String -> String -> IO ()
+processDoublePatterns pattern1 pattern2 fileName = do
+    result <- startProcess pattern1 fileName 
+    lastResult <- parser pattern2 result
+    printResult lastResult
 
 processHelper :: [String] -> Maybe Int -> [Maybe Int] -> Int -> [String] ->
                 String -> String -> String -> [String]
