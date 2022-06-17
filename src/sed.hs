@@ -39,11 +39,19 @@ main = do
                 exitFailure
         [switch1, pattern1, switch2, pattern2, fileName] -> do
             fileExists <- doesFileExist fileName
-            if fileExists && "-e" == switch1 && "-e" == switch2 then do
+            if fileExists && switch1 == "-e" && switch2 == "-e" then do
                 processDoublePatterns pattern1 pattern2 fileName
                 exitSuccess
             else do
                 putStrLn "\nFile doesn't exist! or Invalid command-line option\n"
+                exitFailure 
+        [switch, scriptFile, fileName] -> do 
+            fileExists <- doesFileExist fileName 
+            scriptExists <- doesFileExist scriptFile
+            if fileExists && scriptExists && switch == "-f" then do 
+                loadScript scriptFile fileName 
+                exitSuccess 
+            else do 
                 exitFailure
         _ -> printErrorMessage
 
@@ -71,7 +79,9 @@ printHelp = do
     putStrLn "      Replacing all the occurrences of the pattern on a range of lines: e.g."
     putStrLn "              runhaskell sed.hs '1,3 s/unix/linux/g' input.txt\n"
     putStrLn "      Adding double pattern scripts to be run while processing the input : e.g."
-    putStrLn "              runhaskell sed.hs -e '1,3 s/unix/linux/g' -e '1,3 s/linux/unix/g' input.txt\n\n"
+    putStrLn "              runhaskell sed.hs -e '1,3 s/unix/linux/g' -e '1,3 s/linux/unix/g' input.txt\n"
+    putStrLn "      Loading double pattern scripts from the file to be run while processing the input : e.g."
+    putStrLn "              runhaskell sed.hs -f input.sed input.txt\n\n"    
     putStrLn "Basic command-line options: \n"
     putStrLn "      -n; --quiet; --silent \n"
     putStrLn "      -e script"
@@ -160,6 +170,17 @@ processHelper x maybeNum rangeNums firstNum lines firstPattern replacement lastP
                         replaceStringRangeLines newN1 newN2 firstPattern
                                                 replacement lastPattern lines
             | otherwise = []
+
+loadScript :: FilePath -> String -> IO ()
+loadScript scriptFile fileName = do 
+    line <- getEachLine scriptFile 
+    if length line /= 2 then do 
+        putStrLn "\nInvalid number of scripts\n"
+        exitFailure
+    else do 
+        result <- startProcess (head line) fileName 
+        lastRes <- parser (last line) result
+        printResult lastRes
 
 checkSilentOption :: Foldable t => t String -> Bool
 checkSilentOption args = "-n" `elem` args || "--quiet" `elem` args || "--silent" `elem` args
