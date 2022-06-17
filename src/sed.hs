@@ -144,6 +144,17 @@ processDoublePatterns pattern1 pattern2 fileName = do
     lastResult <- parser pattern2 result
     printResult lastResult
 
+loadScript :: FilePath -> String -> IO ()
+loadScript scriptFile fileName = do 
+    line <- getEachLine scriptFile 
+    if length line /= 2 then do 
+        putStrLn "\nInvalid number of scripts\n"
+        exitFailure
+    else do 
+        result <- startProcess (head line) fileName 
+        lastRes <- parser (last line) result
+        printResult lastRes
+
 processHelper :: [String] -> Maybe Int -> [Maybe Int] -> Int -> [String] ->
                 String -> String -> String -> [String]
 processHelper x maybeNum rangeNums firstNum lines firstPattern replacement lastPattern
@@ -170,17 +181,6 @@ processHelper x maybeNum rangeNums firstNum lines firstPattern replacement lastP
                         replaceStringRangeLines newN1 newN2 firstPattern
                                                 replacement lastPattern lines
             | otherwise = []
-
-loadScript :: FilePath -> String -> IO ()
-loadScript scriptFile fileName = do 
-    line <- getEachLine scriptFile 
-    if length line /= 2 then do 
-        putStrLn "\nInvalid number of scripts\n"
-        exitFailure
-    else do 
-        result <- startProcess (head line) fileName 
-        lastRes <- parser (last line) result
-        printResult lastRes
 
 checkSilentOption :: Foldable t => t String -> Bool
 checkSilentOption args = "-n" `elem` args || "--quiet" `elem` args || "--silent" `elem` args
