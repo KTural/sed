@@ -35,16 +35,14 @@ main = do
                 process pattern fileName
                 exitSuccess
             else do
-                putStrLn "\nFile doesn't exist!\n"
-                exitFailure
+                printFileError
         [switch1, pattern1, switch2, pattern2, fileName] -> do
             fileExists <- doesFileExist fileName
             if fileExists && switch1 == "-e" && switch2 == "-e" then do
                 processDoublePatterns pattern1 pattern2 fileName
                 exitSuccess
             else do
-                putStrLn "\nFile doesn't exist! or Invalid command-line option\n"
-                exitFailure 
+                printFileOrInvalidError
         [switch, scriptFile, fileName] -> do 
             fileExists <- doesFileExist fileName 
             scriptExists <- doesFileExist scriptFile
@@ -52,13 +50,23 @@ main = do
                 loadScript scriptFile fileName 
                 exitSuccess 
             else do 
-                exitFailure
+                printFileOrInvalidError
         _ -> printErrorMessage
 
 printErrorMessage :: IO ()
 printErrorMessage = do
     putStrLn "\nRun runhaskell sed.hs -h or runhaskell sed.hs --help to see program usage\n"
+    exitFailure 
+
+printFileError :: IO ()
+printFileError = do 
+    putStrLn "\nFile doesn't exist!\n"
     exitFailure
+
+printFileOrInvalidError :: IO ()
+printFileOrInvalidError = do 
+    putStrLn "\nFile doesn't exist! or Invalid command-line option\n"
+    exitFailure 
 
 printHelp :: IO ()
 printHelp = do
@@ -151,9 +159,7 @@ loadScript scriptFile fileName = do
         putStrLn "\nInvalid number of scripts\n"
         exitFailure
     else do 
-        result <- startProcess (head line) fileName 
-        lastRes <- parser (last line) result
-        printResult lastRes
+        processDoublePatterns (head line) (last line) fileName
 
 processHelper :: [String] -> Maybe Int -> [Maybe Int] -> Int -> [String] ->
                 String -> String -> String -> [String]
