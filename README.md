@@ -9,7 +9,6 @@
 $ runhaskell sed.hs -h 
 USAGE: runhaskell sed.hs OPTIONS... [SCRIPT] [INPUTFILE...]
 
-
 Basic functionalities: 
 
       Replacing or substituting string: e.g.
@@ -39,10 +38,7 @@ Basic functionalities:
       Loading double pattern scripts from the file to be run while processing the input : e.g.
               runhaskell sed.hs -f input.sed input.txt
 
-
 Basic command-line options: 
-
-      -n; --quiet; --silent 
 
       -e script
               add the commands in script to the set of commands to be run while processing the input
