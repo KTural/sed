@@ -26,8 +26,6 @@ main = do
     when (checkHelpOption args) $ do
         printHelp
         exitSuccess
-    when (checkSilentOption args) $ do
-        exitSuccess
     case args of
         [pattern, fileName] -> do
             fileExists <- doesFileExist fileName
@@ -43,30 +41,30 @@ main = do
                 exitSuccess
             else do
                 printFileOrInvalidError
-        [switch, scriptFile, fileName] -> do 
-            fileExists <- doesFileExist fileName 
+        [switch, scriptFile, fileName] -> do
+            fileExists <- doesFileExist fileName
             scriptExists <- doesFileExist scriptFile
-            if fileExists && scriptExists && switch == "-f" then do 
-                loadScript scriptFile fileName 
-                exitSuccess 
-            else do 
+            if fileExists && scriptExists && switch == "-f" then do
+                loadScript scriptFile fileName
+                exitSuccess
+            else do
                 printFileOrInvalidError
         _ -> printErrorMessage
 
 printErrorMessage :: IO ()
 printErrorMessage = do
     putStrLn "\nRun runhaskell sed.hs -h or runhaskell sed.hs --help to see program usage\n"
-    exitFailure 
+    exitFailure
 
 printFileError :: IO ()
-printFileError = do 
+printFileError = do
     putStrLn "\nFile doesn't exist!\n"
     exitFailure
 
 printFileOrInvalidError :: IO ()
-printFileOrInvalidError = do 
+printFileOrInvalidError = do
     putStrLn "\nFile doesn't exist! or Invalid command-line option\n"
-    exitFailure 
+    exitFailure
 
 printHelp :: IO ()
 printHelp = do
@@ -89,9 +87,8 @@ printHelp = do
     putStrLn "      Adding double pattern scripts to be run while processing the input : e.g."
     putStrLn "              runhaskell sed.hs -e '1,3 s/unix/linux/g' -e '1,3 s/linux/unix/g' input.txt\n"
     putStrLn "      Loading double pattern scripts from the file to be run while processing the input : e.g."
-    putStrLn "              runhaskell sed.hs -f input.sed input.txt\n\n"    
+    putStrLn "              runhaskell sed.hs -f input.sed input.txt\n\n"
     putStrLn "Basic command-line options: \n"
-    putStrLn "      -n; --quiet; --silent \n"
     putStrLn "      -e script"
     putStrLn "              add the commands in script to the set of commands \ 
                             \to be run while processing the input\n"
@@ -106,7 +103,7 @@ printEveryLine = mapM_ putStrLn
 printResult :: Foldable t => t String -> IO ()
 printResult output = do
     mapM_ (\line -> if null line then do
-                        putStrLn "\nInvalid pattern!\n"
+                        putStrLn ""
                     else do
                         putStrLn line) output
 
@@ -118,22 +115,40 @@ getEachLine fileName = do
 
 parser :: String -> [String] -> IO [String]
 parser pattern lines = do
-    let x = splitOn "/" pattern
-        maybeNum = readMaybe $ last x :: Maybe Int
-        digits = [filter isDigit x | x <- splitOn "," $ head x]
+    let splittedPattern = splitOn "/" pattern
+        [startLines, firstPattern, replacement, lastPattern] = splittedPattern
+        maybeNum = readMaybe lastPattern :: Maybe Int
+        digits = [filter isDigit x | x <- splitOn "," startLines]
         rangeNums = map (\x -> readMaybe x :: Maybe Int) digits
         firstNum = fromJust $ head rangeNums
-        (firstPattern, replacement) = getPattern x
-        lastPattern = last x
     when (firstPattern == "" ) $ do
         putStrLn "\n No regular expression is given\n"
         exitFailure
     when (isJust (head rangeNums) && firstNum == 0) $ do
         putStrLn "\nInvalid usage of line address 0\n"
-        exitFailure
-    let result = processHelper x maybeNum rangeNums firstNum
-                            lines firstPattern replacement lastPattern
-    return result
+        exitFailure 
+    if lastPattern == "" && isNothing (head rangeNums) then do
+        return $ processReplaceString firstPattern replacement lines
+    else if isJust maybeNum && not (all isJust rangeNums) then do 
+        return $ processReplaceNthOcc firstPattern replacement maybeNum lines
+    else if lastPattern == "g" && not (all isJust rangeNums) then do 
+        return $ processReplaceAllOcc firstPattern replacement lines
+    else if isJust (head rangeNums) && length rangeNums == 1 then do 
+        return $ processReplaceStringLineNum firstNum firstPattern replacement lastPattern lines
+    else if checkRangeNums rangeNums then do 
+            let n1 = firstNum
+                n2 = fromJust $ last rangeNums
+                (newN1, newN2) = (min n1 n2, max n1 n2)
+            if newN1 > length lines && newN2 /= 0 then do
+                if (checkInvalidNums splittedPattern == 2 && newN1 > 0) ||
+                    (checkInvalidNum splittedPattern == 1 ) then
+                        return lines
+                else return []
+            else 
+                return $ replaceStringRangeLines newN1 newN2 firstPattern
+                                                 replacement lastPattern lines
+    else return []
+    
 
 startProcess :: String -> String -> IO [String]
 startProcess pattern fileName = do
@@ -148,59 +163,45 @@ process pattern fileName = do
 
 processDoublePatterns :: String -> String -> String -> IO ()
 processDoublePatterns pattern1 pattern2 fileName = do
-    result <- startProcess pattern1 fileName 
+    result <- startProcess pattern1 fileName
     lastResult <- parser pattern2 result
     printResult lastResult
 
 loadScript :: FilePath -> String -> IO ()
-loadScript scriptFile fileName = do 
-    line <- getEachLine scriptFile 
-    if length line /= 2 then do 
-        putStrLn "\nInvalid number of scripts\n"
-        exitFailure
-    else do 
-        processDoublePatterns (head line) (last line) fileName
+loadScript scriptFile fileName = do
+    line <- getEachLine scriptFile
+    case line of
+        [pattern1, pattern2] -> processDoublePatterns pattern1 pattern2 fileName
+        _ -> do
+            putStrLn "\nInvalid number of scripts\n"
+            exitFailure
 
-processHelper :: [String] -> Maybe Int -> [Maybe Int] -> Int -> [String] ->
-                String -> String -> String -> [String]
-processHelper x maybeNum rangeNums firstNum lines firstPattern replacement lastPattern
-            | last x == "" && isNothing (head rangeNums) =
-                map (\line -> replaceString line firstPattern replacement) lines
-            | isJust maybeNum && not (all isJust rangeNums) =
-                map (\line -> replaceNthOcc line firstPattern replacement
-                            (fromJust maybeNum)) lines
-            | last x == "g" && not (all isJust rangeNums) =
-                map (\line -> replaceAllOcc line firstPattern replacement) lines
-            | isJust (head rangeNums) && length rangeNums == 1 =
-                replaceStringLineNum firstNum firstPattern replacement lastPattern lines
-            | checkRangeNums rangeNums =
-                let n1 = firstNum
-                    n2 = fromJust $ last rangeNums
-                    (newN1, newN2) = (min n1 n2, max n1 n2)
-                in
-                    if newN1 > length lines && newN2 /= 0 then
-                        if (checkInvalidNums x == 2 && newN1 > 0) ||
-                            (checkInvalidNum x == 1 ) then
-                                lines
-                        else []
-                    else
-                        replaceStringRangeLines newN1 newN2 firstPattern
-                                                replacement lastPattern lines
-            | otherwise = []
+processReplaceString :: (RegexMaker Regex CompOption ExecOption source,
+                        RegexContext Regex source1 (String, String, String)) =>
+                        source -> String -> [source1] -> [String]
+processReplaceString firstPattern replacement =
+    map (\line -> replaceString line firstPattern replacement)
 
-checkSilentOption :: Foldable t => t String -> Bool
-checkSilentOption args = "-n" `elem` args || "--quiet" `elem` args || "--silent" `elem` args
+processReplaceNthOcc :: RegexMaker Regex CompOption ExecOption source =>
+                        source -> String -> Maybe Int -> [String] -> [String]
+processReplaceNthOcc firstPattern replacement maybeNum =
+    map (\line -> replaceNthOcc line firstPattern replacement (fromJust maybeNum))
+
+processReplaceAllOcc :: String -> String -> [String] -> [String]
+processReplaceAllOcc firstPattern replacement =
+    map (\line -> replaceAllOcc line firstPattern replacement)
+
+processReplaceStringLineNum :: Int -> String -> String -> String -> [String] -> [String]
+processReplaceStringLineNum = replaceStringLineNum
+
+processReplaceStringRangeLines :: Int -> Int -> String -> String -> String -> [String] -> [String]
+processReplaceStringRangeLines = replaceStringRangeLines
 
 checkHelpOption :: Foldable t => t String -> Bool
 checkHelpOption args = "-h" `elem` args || "--help" `elem` args
 
 checkRangeNums :: Foldable t => t (Maybe a) -> Bool
 checkRangeNums rangeNums = all isJust rangeNums && length rangeNums == 2
-
-getPattern :: [b] -> (b, b)
-getPattern pattern =
-    let (x, y) = (pattern !! 1, pattern !! 2)
-    in (x, y)
 
 replaceString :: (RegexMaker Regex CompOption ExecOption source,
                         RegexContext Regex source1 (String, String, String)) =>
