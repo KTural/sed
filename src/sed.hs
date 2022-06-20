@@ -68,7 +68,7 @@ printFileOrInvalidError = do
 
 printHelp :: IO ()
 printHelp = do
-    putStrLn "USAGE: runhaskell sed.hs OPTIONS... [SCRIPT] [INPUTFILE...]\n\n"
+    putStrLn "USAGE: runhaskell sed.hs OPTIONS... [SCRIPT] [INPUTFILE...]\n"
     putStrLn "Basic functionalities: \n"
     putStrLn "      Replacing or substituting string: e.g."
     putStrLn "              runhaskell sed.hs 's/unix/linux/' input.txt\n"
@@ -87,7 +87,7 @@ printHelp = do
     putStrLn "      Adding double pattern scripts to be run while processing the input : e.g."
     putStrLn "              runhaskell sed.hs -e '1,3 s/unix/linux/g' -e '1,3 s/linux/unix/g' input.txt\n"
     putStrLn "      Loading double pattern scripts from the file to be run while processing the input : e.g."
-    putStrLn "              runhaskell sed.hs -f input.sed input.txt\n\n"
+    putStrLn "              runhaskell sed.hs -f input.sed input.txt\n"
     putStrLn "Basic command-line options: \n"
     putStrLn "      -e script"
     putStrLn "              add the commands in script to the set of commands \ 
@@ -116,39 +116,40 @@ getEachLine fileName = do
 parser :: String -> [String] -> IO [String]
 parser pattern lines = do
     let splittedPattern = splitOn "/" pattern
-        [startLines, firstPattern, replacement, lastPattern] = splittedPattern
-        maybeNum = readMaybe lastPattern :: Maybe Int
+        [startLines, firstPattern, replacement, flagOrOcc] = splittedPattern
+        maybeOcc = determineFlagOrOcc flagOrOcc
+        maybeOccNum = fromJust (readMaybe flagOrOcc :: Maybe Int)
         digits = [filter isDigit x | x <- splitOn "," startLines]
-        rangeNums = map (\x -> readMaybe x :: Maybe Int) digits
-        firstNum = fromJust $ head rangeNums
+        lineRange = map (\x -> readMaybe x :: Maybe Int) digits
     when (firstPattern == "" ) $ do
         putStrLn "\n No regular expression is given\n"
         exitFailure
-    when (isJust (head rangeNums) && firstNum == 0) $ do
+    when (head lineRange == Just 0) $ do
         putStrLn "\nInvalid usage of line address 0\n"
-        exitFailure 
-    if lastPattern == "" && isNothing (head rangeNums) then do
+        exitFailure
+    if maybeOcc == 1 && isNothing (head lineRange) then do
         return $ processReplaceString firstPattern replacement lines
-    else if isJust maybeNum && not (all isJust rangeNums) then do 
-        return $ processReplaceNthOcc firstPattern replacement maybeNum lines
-    else if lastPattern == "g" && not (all isJust rangeNums) then do 
+    else if maybeOcc == 2 && not (all isJust lineRange) then do
+        return $ processReplaceNthOcc firstPattern replacement maybeOccNum lines
+    else if maybeOcc == 0 && not (all isJust lineRange) then do
         return $ processReplaceAllOcc firstPattern replacement lines
-    else if isJust (head rangeNums) && length rangeNums == 1 then do 
-        return $ processReplaceStringLineNum firstNum firstPattern replacement lastPattern lines
-    else if checkRangeNums rangeNums then do 
-            let n1 = firstNum
-                n2 = fromJust $ last rangeNums
+    else if isJust (head lineRange) && length lineRange == 1 then do
+        return $ processReplaceStringLineNum (fromJust $ head lineRange)
+                    firstPattern replacement maybeOccNum maybeOcc lines
+    else if checklineRange lineRange then do
+            let n1 = fromJust $ head lineRange
+                n2 = fromJust $ last lineRange
                 (newN1, newN2) = (min n1 n2, max n1 n2)
             if newN1 > length lines && newN2 /= 0 then do
                 if (checkInvalidNums splittedPattern == 2 && newN1 > 0) ||
                     (checkInvalidNum splittedPattern == 1 ) then
                         return lines
                 else return []
-            else 
-                return $ replaceStringRangeLines newN1 newN2 firstPattern
-                                                 replacement lastPattern lines
+            else
+                return $ processReplaceStringRangeLines newN1 newN2 firstPattern 
+                                            replacement maybeOccNum maybeOcc lines
     else return []
-    
+
 
 startProcess :: String -> String -> IO [String]
 startProcess pattern fileName = do
@@ -176,53 +177,62 @@ loadScript scriptFile fileName = do
             putStrLn "\nInvalid number of scripts\n"
             exitFailure
 
+determineFlagOrOcc :: String -> Int
+determineFlagOrOcc flagOrOcc
+    | flagOrOcc == "g" = 0
+    | flagOrOcc == "" = 1
+    | fromJust (readMaybe flagOrOcc :: Maybe Int) > 0 = 2
+    | otherwise = error "\nOccurence number can't be zero!\n"
+
 processReplaceString :: (RegexMaker Regex CompOption ExecOption source,
                         RegexContext Regex source1 (String, String, String)) =>
                         source -> String -> [source1] -> [String]
 processReplaceString firstPattern replacement =
-    map (\line -> replaceString line firstPattern replacement)
+    map (replaceString firstPattern replacement)
 
 processReplaceNthOcc :: RegexMaker Regex CompOption ExecOption source =>
-                        source -> String -> Maybe Int -> [String] -> [String]
-processReplaceNthOcc firstPattern replacement maybeNum =
-    map (\line -> replaceNthOcc line firstPattern replacement (fromJust maybeNum))
+                        source -> String -> Int -> [String] -> [String]
+processReplaceNthOcc firstPattern replacement occ =
+    map (replaceNthOcc firstPattern replacement occ)
 
 processReplaceAllOcc :: String -> String -> [String] -> [String]
 processReplaceAllOcc firstPattern replacement =
-    map (\line -> replaceAllOcc line firstPattern replacement)
+    map (replaceAllOcc firstPattern replacement)
 
-processReplaceStringLineNum :: Int -> String -> String -> String -> [String] -> [String]
+processReplaceStringLineNum :: Int -> String -> String -> Int -> Int -> [String] -> [String]
 processReplaceStringLineNum = replaceStringLineNum
 
-processReplaceStringRangeLines :: Int -> Int -> String -> String -> String -> [String] -> [String]
+processReplaceStringRangeLines :: Int -> Int -> String -> String -> Int ->
+                                Int -> [String] -> [String]
 processReplaceStringRangeLines = replaceStringRangeLines
 
 checkHelpOption :: Foldable t => t String -> Bool
 checkHelpOption args = "-h" `elem` args || "--help" `elem` args
 
-checkRangeNums :: Foldable t => t (Maybe a) -> Bool
-checkRangeNums rangeNums = all isJust rangeNums && length rangeNums == 2
+checklineRange :: Foldable t => t (Maybe a) -> Bool
+checklineRange lineRange = all isJust lineRange && length lineRange == 2
 
 replaceString :: (RegexMaker Regex CompOption ExecOption source,
                         RegexContext Regex source1 (String, String, String)) =>
-                        source1 -> source -> String -> String
-replaceString line search replacement =
+                        source -> String -> source1 -> String
+replaceString search replacement line =
     let (x, y, z) = line =~ search :: (String, String, String)
     in if y == "" then x ++ z else x ++ replacement ++ z
 
 replaceNthOcc :: RegexMaker Regex CompOption ExecOption source =>
-                       String -> source -> String -> Int -> String
-replaceNthOcc line search replacement n =
+                    source -> String -> Int -> String -> String
+replaceNthOcc search replacement n line =
     let x = getAllMatches (line =~ search) :: [(Int, Int)]
         numMatches = length x
     in if numMatches < n then line
-       else let untillSearch = take (fst (x !! (n - 1))) line
-                lengthSearch = uncurry (+) (x !! (n - 1))
+       else let (from, to) = x !! (n - 1)
+                untillSearch = take from line
+                lengthSearch = from + to
                 afterSearch = drop lengthSearch line
             in (untillSearch ++ replacement ++ afterSearch)
 
 replaceAllOcc :: String -> String -> String -> String
-replaceAllOcc line search replacement =
+replaceAllOcc search replacement line =
     let pattern = mkRegex search
     in subRegex pattern line replacement
 
@@ -237,26 +247,24 @@ checkInvalidNums :: [String] -> Integer
 checkInvalidNums k =
     sum (map checkNum (splitOn " " $ unwords $ splitOn "," (head k)))
 
-replaceStringLineNum :: Int -> String -> String -> String -> [String] -> [String]
+replaceStringLineNum :: Int -> String -> String -> Int -> Int -> [String] -> [String]
 replaceStringLineNum n = replaceStringRangeLines n n
 
-replaceStringRangeLinesHelper :: [String] -> Maybe Int -> p -> String -> String ->
-                                String -> [String]
+replaceStringRangeLinesHelper :: [String] -> Int -> p -> String -> String ->
+                                Int -> [String]
 replaceStringRangeLinesHelper targetRange lastNum linesOfFiles
-                            firstPattern replacement lastPattern =
-    if isJust lastNum then
-        map (\line -> replaceNthOcc line firstPattern replacement (fromJust lastNum)) targetRange
-    else
-        case lastPattern of
-            "g" -> map (\line -> replaceAllOcc line firstPattern replacement) targetRange
-            _ -> map (\line-> replaceString line firstPattern replacement) targetRange
+                            firstPattern replacement maybeOcc =
+    case maybeOcc of
+        0 -> map (replaceAllOcc firstPattern replacement) targetRange
+        1 -> map (replaceString firstPattern replacement) targetRange
+        2 -> map (replaceNthOcc firstPattern replacement lastNum) targetRange 
+        _ -> error "\nInvalid occurence!\n"
 
-replaceStringRangeLines :: Int -> Int -> String -> String -> String -> [String] -> [String]
-replaceStringRangeLines newN1 newN2 firstPattern replacement lastPattern linesOfFiles =
-    let (beforeRange, rest) = splitAt (newN1 - 1) linesOfFiles
-        (targetRange, afterRange) = splitAt (newN2 - newN1 + 1) rest
-        lastNum = readMaybe lastPattern :: Maybe Int
+replaceStringRangeLines :: Int -> Int -> String -> String -> Int -> Int -> [String] -> [String]
+replaceStringRangeLines n1 n2 firstPattern replacement lastNum maybeOcc linesOfFiles =
+    let (beforeRange, rest) = splitAt (n1 - 1) linesOfFiles
+        (targetRange, afterRange) = splitAt (n2 - n1 + 1) rest
     in (beforeRange ++
         replaceStringRangeLinesHelper targetRange lastNum linesOfFiles
-        firstPattern replacement lastPattern ++
+        firstPattern replacement maybeOcc ++
         afterRange)
