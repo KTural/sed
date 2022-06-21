@@ -7,7 +7,7 @@ import System.Exit ( exitFailure, exitSuccess )
 import System.Directory ( doesFileExist )
 import Data.List.Split (splitOn)
 import Text.Read (readMaybe)
-import Data.Maybe (isJust, fromJust, isNothing)
+import Data.Maybe (isJust, fromJust, isNothing, mapMaybe)
 import Data.Char (isDigit, isSpace)
 import Text.Regex (subRegex, mkRegex)
 import Text.Regex.TDFA
@@ -34,37 +34,25 @@ main = do
                 exitSuccess
             else do
                 printFileError
-        [switch1, pattern1, switch2, pattern2, fileName] -> do
+        ["-e", pattern1, "-e", pattern2, fileName] -> do
             fileExists <- doesFileExist fileName
-            if fileExists && switch1 == "-e" && switch2 == "-e" then do
+            if fileExists then do
                 processDoublePatterns pattern1 pattern2 fileName
                 exitSuccess
             else do
                 printFileOrInvalidError
-        [switch, scriptFile, fileName] -> do
+        ["-f", scriptFile, fileName] -> do
             fileExists <- doesFileExist fileName
             scriptExists <- doesFileExist scriptFile
-            if fileExists && scriptExists && switch == "-f" then do
+            if fileExists && scriptExists then do
                 loadScript scriptFile fileName
                 exitSuccess
             else do
                 printFileOrInvalidError
         _ -> printErrorMessage
 
-printErrorMessage :: IO ()
-printErrorMessage = do
-    putStrLn "\nRun runhaskell sed.hs -h or runhaskell sed.hs --help to see program usage\n"
-    exitFailure
-
-printFileError :: IO ()
-printFileError = do
-    putStrLn "\nFile doesn't exist!\n"
-    exitFailure
-
-printFileOrInvalidError :: IO ()
-printFileOrInvalidError = do
-    putStrLn "\nFile doesn't exist! or Invalid command-line option\n"
-    exitFailure
+checkHelpOption :: Foldable t => t String -> Bool
+checkHelpOption args = "-h" `elem` args || "--help" `elem` args
 
 printHelp :: IO ()
 printHelp = do
@@ -97,76 +85,20 @@ printHelp = do
                             \to the set of commands to be run while processing the input\n"
     putStrLn "      -h ; --help\n"
 
-printEveryLine :: [String] -> IO ()
-printEveryLine = mapM_ putStrLn
-
-printResult :: Foldable t => t String -> IO ()
-printResult output = do
-    mapM_ (\line -> if null line then do
-                        putStrLn ""
-                    else do
-                        putStrLn line) output
-
-getEachLine :: FilePath -> IO [String]
-getEachLine fileName = do
-    contents <- readFile fileName
-    let linesOfFiles = lines contents
-    return linesOfFiles
-
-parser :: String -> [String] -> IO [String]
-parser pattern lines = do
-    let splittedPattern = splitOn "/" pattern
-        [startLines, firstPattern, replacement, flagOrOcc] = splittedPattern
-        maybeOcc = determineFlagOrOcc flagOrOcc
-        maybeOccNum = fromJust (readMaybe flagOrOcc :: Maybe Int)
-        digits = [filter isDigit x | x <- splitOn "," startLines]
-        lineRange = map (\x -> readMaybe x :: Maybe Int) digits
-    when (firstPattern == "" ) $ do
-        putStrLn "\n No regular expression is given\n"
-        exitFailure
-    when (head lineRange == Just 0) $ do
-        putStrLn "\nInvalid usage of line address 0\n"
-        exitFailure
-    if maybeOcc == 1 && isNothing (head lineRange) then do
-        return $ processReplaceString firstPattern replacement lines
-    else if maybeOcc == 2 && not (all isJust lineRange) then do
-        return $ processReplaceNthOcc firstPattern replacement maybeOccNum lines
-    else if maybeOcc == 0 && not (all isJust lineRange) then do
-        return $ processReplaceAllOcc firstPattern replacement lines
-    else if isJust (head lineRange) && length lineRange == 1 then do
-        return $ processReplaceStringLineNum (fromJust $ head lineRange)
-                    firstPattern replacement maybeOccNum maybeOcc lines
-    else if checklineRange lineRange then do
-            let n1 = fromJust $ head lineRange
-                n2 = fromJust $ last lineRange
-                (newN1, newN2) = (min n1 n2, max n1 n2)
-            if newN1 > length lines && newN2 /= 0 then do
-                if (checkInvalidNums splittedPattern == 2 && newN1 > 0) ||
-                    (checkInvalidNum splittedPattern == 1 ) then
-                        return lines
-                else return []
-            else
-                return $ processReplaceStringRangeLines newN1 newN2 firstPattern 
-                                            replacement maybeOccNum maybeOcc lines
-    else return []
-
-
-startProcess :: String -> String -> IO [String]
-startProcess pattern fileName = do
-    let linesOfFiles = getEachLine fileName
-    lines <- linesOfFiles
-    parser pattern lines
-
 process :: String -> String -> IO ()
 process pattern fileName = do
     result <- startProcess pattern fileName
     printResult result
 
-processDoublePatterns :: String -> String -> String -> IO ()
-processDoublePatterns pattern1 pattern2 fileName = do
-    result <- startProcess pattern1 fileName
-    lastResult <- parser pattern2 result
-    printResult lastResult
+printFileError :: IO ()
+printFileError = do
+    putStrLn "\nFile doesn't exist!\n"
+    exitFailure
+
+printFileOrInvalidError :: IO ()
+printFileOrInvalidError = do
+    putStrLn "\nFile doesn't exist! or Invalid command-line option\n"
+    exitFailure
 
 loadScript :: FilePath -> String -> IO ()
 loadScript scriptFile fileName = do
@@ -177,16 +109,72 @@ loadScript scriptFile fileName = do
             putStrLn "\nInvalid number of scripts\n"
             exitFailure
 
+processDoublePatterns :: String -> String -> String -> IO ()
+processDoublePatterns pattern1 pattern2 fileName = do
+    result <- startProcess pattern1 fileName
+    lastResult <- parser pattern2 result
+    printResult lastResult
+
+printErrorMessage :: IO ()
+printErrorMessage = do
+    putStrLn "\nRun runhaskell sed.hs -h or runhaskell sed.hs --help to see program usage\n"
+    exitFailure
+
+startProcess :: String -> String -> IO [String]
+startProcess pattern fileName = do
+    let linesOfFiles = getEachLine fileName
+    lines <- linesOfFiles
+    parser pattern lines
+
+parser :: String -> [String] -> IO [String]
+parser pattern lines = do
+    let splittedPattern = splitOn "/" pattern
+        [startLines, firstPattern, replacement, flagOrOcc] = splittedPattern
+        maybeOcc = determineFlagOrOcc flagOrOcc
+        digits = [filter isDigit x | x <- splitOn "," startLines]
+        lineRange = mapMaybe (\x -> readMaybe x :: Maybe Int) digits
+    when (firstPattern == "" ) $ do
+        putStrLn "\n No regular expression is given\n"
+        exitFailure
+    when (not (null lineRange) && head lineRange == 0) $ do
+        putStrLn "\nInvalid usage of line address 0\n"
+        exitFailure
+    if maybeOcc == 1 && null lineRange then do
+        return $ processReplaceString firstPattern replacement lines
+    else if maybeOcc > 0 && null lineRange then do
+        return $ processReplaceNthOcc firstPattern replacement maybeOcc lines
+    else if maybeOcc == 0 && null lineRange then do
+        return $ processReplaceAllOcc firstPattern replacement lines
+    else if length lineRange == 1 then do
+        return $ replaceStringLineNum (head lineRange)
+                    firstPattern replacement maybeOcc lines
+    else if length lineRange == 2 then do
+            let n1 = head lineRange
+                n2 = last lineRange
+                (newN1, newN2) = (min n1 n2, max n1 n2)
+            return $ replaceStringRangeLines newN1 newN2 firstPattern replacement maybeOcc lines
+    else return []
+
+printResult :: Foldable t => t String -> IO ()
+printResult output = do
+    mapM_ putStrLn output
+
+getEachLine :: FilePath -> IO [String]
+getEachLine fileName = do
+    contents <- readFile fileName
+    let linesOfFiles = lines contents
+    return linesOfFiles
+
 determineFlagOrOcc :: String -> Int
 determineFlagOrOcc flagOrOcc
     | flagOrOcc == "g" = 0
     | flagOrOcc == "" = 1
-    | fromJust (readMaybe flagOrOcc :: Maybe Int) > 0 = 2
-    | otherwise = error "\nOccurence number can't be zero!\n"
+    | isJust maybeOcc && fromJust maybeOcc > 0 = fromJust maybeOcc
+    | otherwise = error "\nOccurence number or flag is invalid!\n"
+    where maybeOcc = readMaybe flagOrOcc :: Maybe Int
 
-processReplaceString :: (RegexMaker Regex CompOption ExecOption source,
-                        RegexContext Regex source1 (String, String, String)) =>
-                        source -> String -> [source1] -> [String]
+processReplaceString :: RegexMaker Regex CompOption ExecOption source =>
+                        source -> String -> [String] -> [String]
 processReplaceString firstPattern replacement =
     map (replaceString firstPattern replacement)
 
@@ -199,25 +187,32 @@ processReplaceAllOcc :: String -> String -> [String] -> [String]
 processReplaceAllOcc firstPattern replacement =
     map (replaceAllOcc firstPattern replacement)
 
-processReplaceStringLineNum :: Int -> String -> String -> Int -> Int -> [String] -> [String]
-processReplaceStringLineNum = replaceStringLineNum
+replaceStringLineNum :: Int -> String -> String -> Int -> [String] -> [String]
+replaceStringLineNum n = replaceStringRangeLines n n
 
-processReplaceStringRangeLines :: Int -> Int -> String -> String -> Int ->
-                                Int -> [String] -> [String]
-processReplaceStringRangeLines = replaceStringRangeLines
+replaceStringRangeLines :: Int -> Int -> String -> String -> Int -> [String] -> [String]
+replaceStringRangeLines n1 n2 firstPattern replacement lastNum linesOfFiles =
+    let (beforeRange, rest) = splitAt (n1 - 1) linesOfFiles
+        (targetRange, afterRange) = splitAt (n2 - n1 + 1) rest
+    in (beforeRange ++
+        replaceStringRangeLinesHelper targetRange lastNum linesOfFiles
+        firstPattern replacement ++ afterRange)
 
-checkHelpOption :: Foldable t => t String -> Bool
-checkHelpOption args = "-h" `elem` args || "--help" `elem` args
+replaceStringRangeLinesHelper :: [String] -> Int -> p -> String -> String -> [String]
+replaceStringRangeLinesHelper targetRange lastNum linesOfFiles firstPattern replacement =
+    case lastNum of
+        0 -> map (replaceAllOcc firstPattern replacement) targetRange
+        1 -> map (replaceString firstPattern replacement) targetRange
+        _ -> map (replaceNthOcc firstPattern replacement lastNum) targetRange
 
-checklineRange :: Foldable t => t (Maybe a) -> Bool
-checklineRange lineRange = all isJust lineRange && length lineRange == 2
+replaceAllOcc :: String -> String -> String -> String
+replaceAllOcc search replacement line =
+    let pattern = mkRegex search
+    in subRegex pattern line replacement
 
-replaceString :: (RegexMaker Regex CompOption ExecOption source,
-                        RegexContext Regex source1 (String, String, String)) =>
-                        source -> String -> source1 -> String
-replaceString search replacement line =
-    let (x, y, z) = line =~ search :: (String, String, String)
-    in if y == "" then x ++ z else x ++ replacement ++ z
+replaceString :: RegexMaker Regex CompOption ExecOption source =>
+                    source -> String -> String -> String
+replaceString search replacement = replaceNthOcc search replacement 1
 
 replaceNthOcc :: RegexMaker Regex CompOption ExecOption source =>
                     source -> String -> Int -> String -> String
@@ -230,41 +225,3 @@ replaceNthOcc search replacement n line =
                 lengthSearch = from + to
                 afterSearch = drop lengthSearch line
             in (untillSearch ++ replacement ++ afterSearch)
-
-replaceAllOcc :: String -> String -> String -> String
-replaceAllOcc search replacement line =
-    let pattern = mkRegex search
-    in subRegex pattern line replacement
-
-checkNum :: String -> Integer
-checkNum x = if isJust (readMaybe x :: Maybe Int) then 1 else 0
-
-checkInvalidNum :: [String] -> Integer
-checkInvalidNum k =
-    sum (map checkNum (splitOn " " (head k)))
-
-checkInvalidNums :: [String] -> Integer
-checkInvalidNums k =
-    sum (map checkNum (splitOn " " $ unwords $ splitOn "," (head k)))
-
-replaceStringLineNum :: Int -> String -> String -> Int -> Int -> [String] -> [String]
-replaceStringLineNum n = replaceStringRangeLines n n
-
-replaceStringRangeLinesHelper :: [String] -> Int -> p -> String -> String ->
-                                Int -> [String]
-replaceStringRangeLinesHelper targetRange lastNum linesOfFiles
-                            firstPattern replacement maybeOcc =
-    case maybeOcc of
-        0 -> map (replaceAllOcc firstPattern replacement) targetRange
-        1 -> map (replaceString firstPattern replacement) targetRange
-        2 -> map (replaceNthOcc firstPattern replacement lastNum) targetRange 
-        _ -> error "\nInvalid occurence!\n"
-
-replaceStringRangeLines :: Int -> Int -> String -> String -> Int -> Int -> [String] -> [String]
-replaceStringRangeLines n1 n2 firstPattern replacement lastNum maybeOcc linesOfFiles =
-    let (beforeRange, rest) = splitAt (n1 - 1) linesOfFiles
-        (targetRange, afterRange) = splitAt (n2 - n1 + 1) rest
-    in (beforeRange ++
-        replaceStringRangeLinesHelper targetRange lastNum linesOfFiles
-        firstPattern replacement maybeOcc ++
-        afterRange)
