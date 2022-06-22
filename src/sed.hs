@@ -128,32 +128,32 @@ startProcess pattern fileName = do
 
 parser :: String -> [String] -> IO [String]
 parser pattern lines = do
-    let splittedPattern = splitOn "/" pattern
-        [startLines, firstPattern, replacement, flagOrOcc] = splittedPattern
+    case splitOn "/" pattern of 
+        [_, _, _, _] -> return []
+        _ -> error "\nInvalid pattern\n"
+    let [startLines, firstPattern, replacement, flagOrOcc] = splitOn "/" pattern
         maybeOcc = determineFlagOrOcc flagOrOcc
         digits = [filter isDigit x | x <- splitOn "," startLines]
-        lineRange = mapMaybe (\x -> readMaybe x :: Maybe Int) digits
+        lineRange = mapMaybe readMaybe digits
     when (firstPattern == "" ) $ do
         putStrLn "\n No regular expression is given\n"
         exitFailure
     when (not (null lineRange) && head lineRange == 0) $ do
         putStrLn "\nInvalid usage of line address 0\n"
         exitFailure
-    if maybeOcc == 1 && null lineRange then do
-        return $ processReplaceString firstPattern replacement lines
-    else if maybeOcc > 0 && null lineRange then do
-        return $ processReplaceNthOcc firstPattern replacement maybeOcc lines
-    else if maybeOcc == 0 && null lineRange then do
-        return $ processReplaceAllOcc firstPattern replacement lines
-    else if length lineRange == 1 then do
-        return $ replaceStringLineNum (head lineRange)
-                    firstPattern replacement maybeOcc lines
-    else if length lineRange == 2 then do
-            let n1 = head lineRange
-                n2 = last lineRange
-                (newN1, newN2) = (min n1 n2, max n1 n2)
+    case lineRange of
+        [] 
+           | maybeOcc > 0 ->
+                return $ processReplaceNthOcc firstPattern replacement maybeOcc lines
+           | maybeOcc == 0 ->
+                return $ processReplaceAllOcc firstPattern replacement lines
+        [n1] ->
+            return $ replaceStringLineNum n1 firstPattern replacement maybeOcc lines
+        [n1, n2] -> do
+            let (newN1, newN2) = (min n1 n2, max n1 n2)
             return $ replaceStringRangeLines newN1 newN2 firstPattern replacement maybeOcc lines
-    else return []
+        _ ->
+            return []
 
 printResult :: Foldable t => t String -> IO ()
 printResult output = do
@@ -169,14 +169,8 @@ determineFlagOrOcc :: String -> Int
 determineFlagOrOcc flagOrOcc
     | flagOrOcc == "g" = 0
     | flagOrOcc == "" = 1
-    | isJust maybeOcc && fromJust maybeOcc > 0 = fromJust maybeOcc
+    | Just occ <- readMaybe flagOrOcc = occ
     | otherwise = error "\nOccurence number or flag is invalid!\n"
-    where maybeOcc = readMaybe flagOrOcc :: Maybe Int
-
-processReplaceString :: RegexMaker Regex CompOption ExecOption source =>
-                        source -> String -> [String] -> [String]
-processReplaceString firstPattern replacement =
-    map (replaceString firstPattern replacement)
 
 processReplaceNthOcc :: RegexMaker Regex CompOption ExecOption source =>
                         source -> String -> Int -> [String] -> [String]
@@ -195,24 +189,18 @@ replaceStringRangeLines n1 n2 firstPattern replacement lastNum linesOfFiles =
     let (beforeRange, rest) = splitAt (n1 - 1) linesOfFiles
         (targetRange, afterRange) = splitAt (n2 - n1 + 1) rest
     in (beforeRange ++
-        replaceStringRangeLinesHelper targetRange lastNum linesOfFiles
-        firstPattern replacement ++ afterRange)
+        replaceStringRangeLinesHelper targetRange lastNum firstPattern replacement ++ afterRange)
 
-replaceStringRangeLinesHelper :: [String] -> Int -> p -> String -> String -> [String]
-replaceStringRangeLinesHelper targetRange lastNum linesOfFiles firstPattern replacement =
+replaceStringRangeLinesHelper :: [String] -> Int -> String -> String -> [String]
+replaceStringRangeLinesHelper targetRange lastNum firstPattern replacement =
     case lastNum of
         0 -> map (replaceAllOcc firstPattern replacement) targetRange
-        1 -> map (replaceString firstPattern replacement) targetRange
         _ -> map (replaceNthOcc firstPattern replacement lastNum) targetRange
 
 replaceAllOcc :: String -> String -> String -> String
 replaceAllOcc search replacement line =
     let pattern = mkRegex search
     in subRegex pattern line replacement
-
-replaceString :: RegexMaker Regex CompOption ExecOption source =>
-                    source -> String -> String -> String
-replaceString search replacement = replaceNthOcc search replacement 1
 
 replaceNthOcc :: RegexMaker Regex CompOption ExecOption source =>
                     source -> String -> Int -> String -> String
